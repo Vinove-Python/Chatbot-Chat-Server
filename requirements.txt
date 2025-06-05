@@ -29,3 +29,13 @@ wheel==0.45.1
 zope.event==5.0
 zope.interface==7.2
 httpx
+
+# Database
+asyncpg
+
+# Authentication and Security
+PyJWT
+python-multipart
+
+# Templating (if using Jinja2 templates)
+jinja2

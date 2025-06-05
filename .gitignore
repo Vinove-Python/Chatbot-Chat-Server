@@ -2,3 +2,4 @@ venv/
 widget/
 .env
 __pycache__/
+app.log

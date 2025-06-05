@@ -122,6 +122,14 @@ HTML_ADMIN_INTERFACE = """
         }
         .accept-btn { background: #28a745; color: white; }
         .reject-btn { background: #dc3545; color: white; }
+        .logout-btn {
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            background: #e90000;
+            color: white;
+            margin-left: 10px;
+        }
     </style>
 </head>
 <body>
@@ -136,7 +144,10 @@ HTML_ADMIN_INTERFACE = """
 
     <div class="main-content">
         <div class="header">
-            <h1>Human Agent Dashboard</h1>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h1>Human Agent Dashboard</h1>
+                <div>Welcome, ' +username+ '<button class="logout-btn" style="border: none;"><a href="/logout" style="text-decoration: none; color:white;">Logout</a></button></div>
+            </div>
             <div class="status-bar">
                 <div id="adminStatus" class="status disconnected">Admin: Disconnected</div>
                 <div class="clients-count">Total Active Clients: <span id="totalClientCount">0</span></div>
@@ -180,9 +191,32 @@ HTML_ADMIN_INTERFACE = """
         let isLoadingHistory = false; // Prevent multiple simultaneous loads
         let apiHistoryLoaded = new Set(); // Track which clients have had their API history loaded
 
+        function getTokenFromCookie() {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'access_token') {
+                    // Remove surrounding quotes if present
+                    let cleanedValue = value;
+                    if (value.startsWith('"') && value.endsWith('"')) {
+                        cleanedValue = value.slice(1, -1); // Remove leading and trailing quotes
+                    }
+                    // Remove "Bearer " prefix if present
+                    return cleanedValue.startsWith('Bearer ') ? cleanedValue.substring(7) : cleanedValue;
+                }
+            }
+            return null;
+        }
+
         function connectAdmin() {
+            const token = getTokenFromCookie();
+            if (!token) {
+                console.log('No authentication token found. Redirecting to login...', 'error');
+                setTimeout(() => window.location.href = '/login', 1000);
+                return;
+            }
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            adminWs = new WebSocket(`${protocol}//${window.location.host}/admin`);
+            adminWs = new WebSocket(`${protocol}//${window.location.host}/admin?token=${encodeURIComponent(token)}`);
 
             adminWs.onopen = () => {
                 updateAdminStatus(true);
