@@ -374,6 +374,7 @@ async def logout():
     """Handle logout"""
     response = RedirectResponse(url="/login", status_code=302)
     response.delete_cookie(key="access_token")
+    await manager.disconnect_admin()
     return response
 
 @app.get("/", response_class=HTMLResponse)
@@ -455,21 +456,22 @@ class ConnectionManager:
 
     async def request_connection(self, websocket: WebSocket) -> str:
         """A client requests to connect. They are put in pending."""
-        await websocket.accept()
-        request_id = str(uuid.uuid4())
-        conversation_id = websocket.query_params.get('conversation_id', 'No conversation ID provided')
-        client_info = self._get_client_info(websocket)
-        client_info['conversation_id'] = conversation_id
-        self.pending_connections[request_id] = {"ws": websocket, "info": client_info}
+        if self.admin_websocket is not None:
+            await websocket.accept()
+            request_id = str(uuid.uuid4())
+            conversation_id = websocket.query_params.get('conversation_id', 'No conversation ID provided')
+            client_info = self._get_client_info(websocket)
+            client_info['conversation_id'] = conversation_id
+            self.pending_connections[request_id] = {"ws": websocket, "info": client_info}
 
-        if self.admin_websocket:
             await self.send_to_admin_socket(self.admin_websocket, {
                 "type": "connection_request",
                 "request_id": request_id,
                 "conversation_id": conversation_id,
                 "client_info": client_info
             })
-        logger.info(f"Connection request {request_id} from {client_info['client_ip']}. Pending admin approval.")
+            logger.info(f"Connection request {request_id} from {client_info['client_ip']}. Pending admin approval.")
+        logger.info(f"Connection request {request_id} from {client_info['client_ip']}. Admin not conencted.")
         return request_id
 
     async def handle_admin_response(self, request_id: str, action: str):
@@ -706,7 +708,7 @@ async def client_websocket_endpoint(websocket: WebSocket):
             message_text = await websocket.receive_text()
 
             if not manager.is_client_active(websocket):
-                if manager.is_client_pending(websocket):
+                if manager.is_client_pending(websocket) and manager.admin_websocket:
                     await websocket.send_text(json.dumps({
                         "type": "status_update",
                         "message": "Connection request pending admin approval. Please wait."
@@ -726,10 +728,14 @@ async def client_websocket_endpoint(websocket: WebSocket):
                 logger.error(f"Client {current_client_id} passed active check but no ID found. Forcing disconnect.")
                 await websocket.send_text(json.dumps({"type": "error", "message": "Internal server error. Please reconnect."}))
                 break
-
-            logger.info(f"Client {current_client_id} sent: {message_text}")
-            actual_message = message_text
-            await manager.forward_user_message_to_admin(current_client_id, actual_message)
+                
+            if not manager.admin_websocket:
+                logger.info(f"Client {current_client_id} sent message but admin is not connected.")
+                await websocket.send_text(json.dumps({"type": "error", "message": "Connection not active."}))
+            else:
+                logger.info(f"Client {current_client_id} sent: {message_text}")
+                actual_message = message_text
+                await manager.forward_user_message_to_admin(current_client_id, actual_message)
 
     except WebSocketDisconnect:
         logger.info(f"Client {current_client_id} (IP: {websocket.client.host if websocket.client else 'N/A'}) disconnected.")
